@@ -133,7 +133,7 @@ class AudioData(object):
 
         return raw_data
 
-    def get_wav_data(self, convert_rate=None, convert_width=None):
+    def get_wav_data(self, convert_rate=None, convert_width=None, nchannels = 1):
         """
         Returns a byte string representing the contents of a WAV file containing the audio represented by the ``AudioData`` instance.
 
@@ -157,7 +157,7 @@ class AudioData(object):
             try:  # note that we can't use context manager, since that was only added in Python 3.4
                 wav_writer.setframerate(sample_rate)
                 wav_writer.setsampwidth(sample_width)
-                wav_writer.setnchannels(1)
+                wav_writer.setnchannels(nchannels)
                 wav_writer.writeframes(raw_data)
                 wav_data = wav_file.getvalue()
             finally:  # make sure resources are cleaned up
