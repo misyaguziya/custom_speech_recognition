@@ -463,6 +463,22 @@ class Recognizer(AudioSource):
 
         return b"".join(frames), elapsed_time
 
+    def listen_energy(self, source):
+        """
+        Records a single phrase from ``source`` (an ``AudioSource`` instance) into an energy, which it returns.
+
+        This is done realtime.
+        """
+
+        assert isinstance(source, AudioSource), "Source must be an audio source"
+        assert source.stream is not None, "Audio source must be entered before listening, see documentation for ``AudioSource``; are you using ``source`` outside of a ``with`` statement?"
+
+        buffer = source.stream.read(source.CHUNK)
+
+        # detect whether speaking has started on audio input
+        energy = audioop.rms(buffer, source.SAMPLE_WIDTH)  # energy of the audio signal
+        return energy
+
     def listen(self, source, timeout=None, phrase_time_limit=None, snowboy_configuration=None):
         """
         Records a single phrase from ``source`` (an ``AudioSource`` instance) into an ``AudioData`` instance, which it returns.
