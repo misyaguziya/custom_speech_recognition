@@ -720,6 +720,8 @@ class Recognizer(AudioSource):
                     break
 
                 buffer = source.stream.read(source.CHUNK)
+                if callback_energy is not None:
+                    callback_energy(audioop.rms(buffer, source.SAMPLE_WIDTH))
                 if len(buffer) == 0: break  # reached end of the stream
                 frames.append(buffer)
                 phrase_count += 1
