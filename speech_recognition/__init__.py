@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import time
 import uuid
+import ctypes
 
 try:
     import requests
@@ -26,7 +27,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 __author__ = "Anthony Zhang (Uberi)"
-__version__ = "3.10.2"
+__version__ = "3.10.3"
 __license__ = "BSD"
 
 from urllib.parse import urlencode
@@ -502,8 +503,12 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, energy)
 
-        def stopper(wait_for_stop=True):
+        def stopper(wait_for_stop=True, forced_stop=False):
             running[0] = False
+            if forced_stop is True:
+                # terminate the thread
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(listener_thread.ident), ctypes.py_object(SystemExit))
+
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
@@ -632,8 +637,12 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, audio)
 
-        def stopper(wait_for_stop=True):
+        def stopper(wait_for_stop=True, forced_stop=False):
             running[0] = False
+            if forced_stop is True:
+                # terminate the thread
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(listener_thread.ident), ctypes.py_object(SystemExit))
+
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
@@ -768,8 +777,12 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, audio)
 
-        def stopper(wait_for_stop=True):
+        def stopper(wait_for_stop=True, forced_stop=False):
             running[0] = False
+            if forced_stop is True:
+                # terminate the thread
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(listener_thread.ident), ctypes.py_object(SystemExit))
+
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
