@@ -27,7 +27,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 __author__ = "Anthony Zhang (Uberi)"
-__version__ = "3.10.3"
+__version__ = "3.10.4"
 __license__ = "BSD"
 
 from urllib.parse import urlencode
@@ -503,12 +503,8 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, energy)
 
-        def stopper(wait_for_stop=True, forced_stop=False):
+        def stopper(wait_for_stop=True):
             running[0] = False
-            if forced_stop is True:
-                # terminate the thread
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(listener_thread.ident), ctypes.py_object(SystemExit))
-
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
@@ -637,12 +633,8 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, audio)
 
-        def stopper(wait_for_stop=True, forced_stop=False):
+        def stopper(wait_for_stop=True):
             running[0] = False
-            if forced_stop is True:
-                # terminate the thread
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(listener_thread.ident), ctypes.py_object(SystemExit))
-
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
@@ -693,7 +685,12 @@ class Recognizer(AudioSource):
                     if timeout and elapsed_time > timeout:
                         raise WaitTimeoutError("listening timed out while waiting for phrase to start")
 
-                    buffer = source.stream.read(source.CHUNK)
+                    if source.stream.pyaudio_stream.get_read_available() != 0:
+                        buffer = source.stream.read(source.CHUNK)
+                    else:
+                        time.sleep(0.1)
+                        raise WaitTimeoutError("Can't read audio data from source.")
+
                     if callback_energy is not None:
                         callback_energy(audioop.rms(buffer, source.SAMPLE_WIDTH))
 
@@ -774,15 +771,13 @@ class Recognizer(AudioSource):
                         audio = self.listen_energy_and_audio(s, 1, phrase_time_limit, callback_energy=callback_energy)
                     except WaitTimeoutError:  # listening timed out, just try again
                         pass
+                    except Exception:
+                        pass
                     else:
                         if running[0]: callback(self, audio)
 
-        def stopper(wait_for_stop=True, forced_stop=False):
+        def stopper(wait_for_stop=True):
             running[0] = False
-            if forced_stop is True:
-                # terminate the thread
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(listener_thread.ident), ctypes.py_object(SystemExit))
-
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
