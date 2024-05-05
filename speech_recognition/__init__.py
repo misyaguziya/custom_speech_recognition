@@ -474,7 +474,11 @@ class Recognizer(AudioSource):
         assert isinstance(source, AudioSource), "Source must be an audio source"
         assert source.stream is not None, "Audio source must be entered before listening, see documentation for ``AudioSource``; are you using ``source`` outside of a ``with`` statement?"
 
-        buffer = source.stream.read(source.CHUNK)
+        if source.stream.pyaudio_stream.get_read_available() != 0:
+            buffer = source.stream.read(source.CHUNK)
+        else:
+            time.sleep(0.01)
+            raise WaitTimeoutError("Can't read audio data from source.")
 
         # detect whether speaking has started on audio input
         energy = audioop.rms(buffer, source.SAMPLE_WIDTH)  # energy of the audio signal
@@ -688,7 +692,7 @@ class Recognizer(AudioSource):
                     if source.stream.pyaudio_stream.get_read_available() != 0:
                         buffer = source.stream.read(source.CHUNK)
                     else:
-                        time.sleep(0.1)
+                        time.sleep(0.01)
                         raise WaitTimeoutError("Can't read audio data from source.")
 
                     if callback_energy is not None:
@@ -770,8 +774,6 @@ class Recognizer(AudioSource):
                     try:  # listen for 1 second, then check again if the stop function has been called
                         audio = self.listen_energy_and_audio(s, 1, phrase_time_limit, callback_energy=callback_energy)
                     except WaitTimeoutError:  # listening timed out, just try again
-                        pass
-                    except Exception:
                         pass
                     else:
                         if running[0]: callback(self, audio)
