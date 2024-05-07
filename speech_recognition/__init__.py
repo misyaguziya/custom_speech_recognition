@@ -496,6 +496,7 @@ class Recognizer(AudioSource):
         """
         assert isinstance(source, AudioSource), "Source must be an audio source"
         running = [True]
+        pause = [False]
 
         def threaded_listen():
             with source as s:
@@ -507,15 +508,24 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, energy)
 
+                    while pause[0]:
+                        time.sleep(0.1)
+
         def stopper(wait_for_stop=True):
             running[0] = False
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
+        def pauser():
+            pause[0] = True
+
+        def resumer():
+            pause[0] = False
+
         listener_thread = threading.Thread(target=threaded_listen)
         listener_thread.daemon = True
         listener_thread.start()
-        return stopper
+        return stopper, pauser, resumer
 
     def listen(self, source, timeout=None, phrase_time_limit=None, snowboy_configuration=None):
         """
@@ -626,6 +636,7 @@ class Recognizer(AudioSource):
         """
         assert isinstance(source, AudioSource), "Source must be an audio source"
         running = [True]
+        pause = [False]
 
         def threaded_listen():
             with source as s:
@@ -637,15 +648,24 @@ class Recognizer(AudioSource):
                     else:
                         if running[0]: callback(self, audio)
 
+                    while pause[0]:
+                        time.sleep(0.1)
+
         def stopper(wait_for_stop=True):
             running[0] = False
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
+        def pauser():
+            pause[0] = True
+
+        def resumer():
+            pause[0] = False
+
         listener_thread = threading.Thread(target=threaded_listen)
         listener_thread.daemon = True
         listener_thread.start()
-        return stopper
+        return stopper, pauser, resumer
 
     # get energy and audio
     def listen_energy_and_audio(self, source, timeout=None, phrase_time_limit=None, snowboy_configuration=None, callback_energy=None):
