@@ -27,7 +27,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 __author__ = "Anthony Zhang (Uberi)"
-__version__ = "3.10.4.1"
+__version__ = "3.10.4.2"
 __license__ = "BSD"
 
 from urllib.parse import urlencode
@@ -37,10 +37,11 @@ from urllib.error import URLError, HTTPError
 from .audio import AudioData, get_flac_converter
 from .exceptions import (
     RequestError,
-    TranscriptionFailed, 
+    TranscriptionFailed,
     TranscriptionNotReady,
     UnknownValueError,
     WaitTimeoutError,
+    ForceTermination,
 )
 from .recognizers import whisper
 
@@ -354,6 +355,8 @@ class Recognizer(AudioSource):
 
         self.phrase_threshold = 0.3  # minimum seconds of speaking audio before we consider the speaking audio a phrase - values below this are ignored (for filtering out clicks and pops)
         self.non_speaking_duration = 0.5  # seconds of non-speaking audio to keep on both sides of the recording
+
+        self.termination_background = False # flag to force listen_in_background processing to terminate
 
     def record(self, source, duration=None, offset=None):
         """
@@ -715,6 +718,9 @@ class Recognizer(AudioSource):
                         time.sleep(0.01)
                         raise WaitTimeoutError("Can't read audio data from source.")
 
+                    if self.termination_background is True:
+                        raise ForceTermination("Force termination of background processes.")
+
                     if callback_energy is not None:
                         callback_energy(audioop.rms(buffer, source.SAMPLE_WIDTH))
 
@@ -745,6 +751,12 @@ class Recognizer(AudioSource):
             pause_count, phrase_count = 0, 0
             phrase_start_time = elapsed_time
             while True:
+                if time.time() - record_start_time > record_timeout:
+                    raise WaitTimeoutError("Can't read audio data from source.")
+
+                if self.termination_background is True:
+                    raise ForceTermination("Force termination of background processes.")
+
                 # handle phrase being too long by cutting off the audio
                 elapsed_time += seconds_per_buffer
                 if phrase_time_limit and elapsed_time - phrase_start_time > phrase_time_limit:
@@ -765,9 +777,6 @@ class Recognizer(AudioSource):
                     pause_count += 1
                 if pause_count > pause_buffer_count:  # end of the phrase
                     break
-
-                if time.time() - record_start_time > record_timeout:
-                    WaitTimeoutError("Can't read audio data from source.")
 
             # check how long the detected phrase is, and retry listening if the phrase is too short
             phrase_count -= pause_count  # exclude the buffers for the pause before the phrase
@@ -808,6 +817,7 @@ class Recognizer(AudioSource):
 
         def stopper(wait_for_stop=True):
             running[0] = False
+            self.termination_background = True
             if wait_for_stop:
                 listener_thread.join()  # block until the background thread is done, which can take around 1 second
 
