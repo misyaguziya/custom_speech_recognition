@@ -5,6 +5,8 @@ class SetupError(Exception):
 class WaitTimeoutError(Exception):
     pass
 
+class ForceTermination(Exception):
+    pass
 
 class RequestError(Exception):
     pass
