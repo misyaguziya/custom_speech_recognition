@@ -809,6 +809,16 @@ class Recognizer(AudioSource):
                         audio = self.listen_energy_and_audio(s, phrase_timeout, phrase_time_limit, callback_energy=callback_energy, record_timeout=record_timeout)
                     except WaitTimeoutError:  # listening timed out, just try again
                         pass
+                    except ForceTermination:  # stopper() requested termination via self.termination_background
+                        break
+                    except OSError:
+                        # stopper() may force-unblock a stuck stream.read() by calling
+                        # pyaudio_stream.stop_stream() from another thread, which makes the
+                        # blocking read() raise OSError instead of returning. This only
+                        # happens as part of an intentional stop, so treat it the same as
+                        # ForceTermination rather than letting it kill this thread with an
+                        # unhandled exception.
+                        break
                     else:
                         if running[0]: callback(self, audio)
 
