@@ -221,8 +221,18 @@ class Microphone(AudioSource):
                 # sometimes, if the stream isn't stopped, closing the stream throws an exception
                 if not self.pyaudio_stream.is_stopped():
                     self.pyaudio_stream.stop_stream()
+            except OSError:
+                # The underlying stream can already be in a "closed"/invalid
+                # state here (e.g. the device disappeared, or another thread
+                # force-stopped it to unblock a pending read()). is_stopped()/
+                # stop_stream() raise in that case; closing an
+                # already-broken stream should be a no-op, not a crash.
+                pass
             finally:
-                self.pyaudio_stream.close()
+                try:
+                    self.pyaudio_stream.close()
+                except OSError:
+                    pass
 
 
 class AudioFile(AudioSource):
