@@ -27,7 +27,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 __author__ = "Anthony Zhang (Uberi)"
-__version__ = "3.10.4.2"
+__version__ = "3.10.4.3"
 __license__ = "BSD"
 
 from urllib.parse import urlencode
