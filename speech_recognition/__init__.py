@@ -27,7 +27,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 __author__ = "Anthony Zhang (Uberi)"
-__version__ = "3.10.4.3"
+__version__ = "3.10.4.4"
 __license__ = "BSD"
 
 from urllib.parse import urlencode
@@ -852,6 +852,108 @@ class Recognizer(AudioSource):
         listener_thread.start()
         return stopper, pauser, resumer
 
+    def listen_with_segmenter(self, source, segmenter, callback_energy=None, record_timeout=5):
+        """
+        Reads audio from ``source`` and feeds it to ``segmenter`` until ``segmenter`` reports a
+        completed phrase, returning it as an ``AudioData`` instance.
+
+        Unlike ``listen_energy_and_audio``, phrase-boundary detection is not built in here: it is
+        entirely delegated to ``segmenter``, which must provide:
+
+        - ``sample_rate`` / ``sample_width``: the format of the audio bytes it returns.
+        - ``process(pcm_bytes)``: takes one chunk of raw audio (in ``source``'s native format) and
+          returns a list of zero or more completed segment objects, each with an ``.audio`` bytes
+          attribute.
+
+        Because ``segmenter`` owns the entire start/end state machine internally, there is no
+        separate "wait for phrase to start" phase like ``listen_energy_and_audio`` has: this is a
+        single continuous read loop that keeps feeding ``segmenter`` until it finalizes a segment.
+
+        The ``timeout``/``termination``/``OSError`` contract matches ``listen_energy_and_audio``
+        exactly, so this can be dropped into the same background-thread wrapper style as
+        ``listen_energy_and_audio_in_background`` (see ``listen_with_segmenter_in_background``).
+        """
+        assert isinstance(source, AudioSource), "Source must be an audio source"
+        assert source.stream is not None, "Audio source must be entered before listening, see documentation for ``AudioSource``; are you using ``source`` outside of a ``with`` statement?"
+
+        record_start_time = time.time()
+        while True:
+            if time.time() - record_start_time > record_timeout:
+                raise WaitTimeoutError("Can't read audio data from source.")
+
+            if self.termination_background is True:
+                raise ForceTermination("Force termination of background processes.")
+
+            buffer = source.stream.read(source.CHUNK)
+            if callback_energy is not None:
+                callback_energy(audioop.rms(buffer, source.SAMPLE_WIDTH))
+            if len(buffer) == 0:  # reached end of the stream
+                raise WaitTimeoutError("Can't read audio data from source.")
+
+            for segment in segmenter.process(buffer):
+                return AudioData(segment.audio, segmenter.sample_rate, segmenter.sample_width)
+
+    def listen_with_segmenter_in_background(self, source, callback, segmenter, callback_energy=None, record_timeout=5):
+        """
+        Spawns a thread to repeatedly record phrases from ``source`` into ``AudioData`` instances
+        and call ``callback`` with each one, using the same thread/stop/pause contract as
+        ``listen_energy_and_audio_in_background`` (see that method's docstring), but with
+        phrase-boundary detection delegated entirely to ``segmenter`` (see ``listen_with_segmenter``)
+        instead of ``recognizer_instance.energy_threshold``/``pause_threshold``.
+
+        When the listener stops, ``segmenter.flush()`` (if the segmenter provides one) is called
+        once so an already-committed-but-not-yet-finished phrase is still delivered instead of
+        being silently dropped.
+        """
+        assert isinstance(source, AudioSource), "Source must be an audio source"
+        running = [True]
+        pause = [False]
+
+        def threaded_listen():
+            with source as s:
+                while running[0]:
+                    try:  # listen for a while, then check again if the stop function has been called
+                        audio = self.listen_with_segmenter(s, segmenter, callback_energy=callback_energy, record_timeout=record_timeout)
+                    except WaitTimeoutError:  # listening timed out, just try again
+                        pass
+                    except ForceTermination:  # stopper() requested termination via self.termination_background
+                        break
+                    except OSError:
+                        # stopper() may force-unblock a stuck stream.read() by calling
+                        # pyaudio_stream.stop_stream() from another thread, which makes the
+                        # blocking read() raise OSError instead of returning. This only
+                        # happens as part of an intentional stop, so treat it the same as
+                        # ForceTermination rather than letting it kill this thread with an
+                        # unhandled exception.
+                        break
+                    else:
+                        if running[0]: callback(self, audio)
+
+                    while pause[0]:
+                        time.sleep(0.1)
+
+                flush = getattr(segmenter, "flush", None)
+                if callable(flush):
+                    flushed = flush()
+                    if flushed is not None:
+                        callback(self, AudioData(flushed.audio, segmenter.sample_rate, segmenter.sample_width))
+
+        def stopper(wait_for_stop=True):
+            running[0] = False
+            self.termination_background = True
+            if wait_for_stop:
+                listener_thread.join()  # block until the background thread is done, which can take around 1 second
+
+        def pauser():
+            pause[0] = True
+
+        def resumer():
+            pause[0] = False
+
+        listener_thread = threading.Thread(target=threaded_listen)
+        listener_thread.daemon = True
+        listener_thread.start()
+        return stopper, pauser, resumer
 
     def recognize_sphinx(self, audio_data, language="en-US", keyword_entries=None, grammar=None, show_all=False):
         """
