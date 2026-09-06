@@ -863,7 +863,10 @@ class Recognizer(AudioSource):
         - ``sample_rate`` / ``sample_width``: the format of the audio bytes it returns.
         - ``process(pcm_bytes)``: takes one chunk of raw audio (in ``source``'s native format) and
           returns a list of zero or more completed segment objects, each with an ``.audio`` bytes
-          attribute.
+          attribute. If a segment object also has a ``.reason`` attribute (e.g. distinguishing a
+          natural end from a forced/safety-valve cutoff), it is carried over to the returned
+          ``AudioData`` as ``.segment_reason`` so the caller can tell the two apart; this is
+          entirely optional and only inspected via ``getattr(..., None)``.
 
         Because ``segmenter`` owns the entire start/end state machine internally, there is no
         separate "wait for phrase to start" phase like ``listen_energy_and_audio`` has: this is a
@@ -891,7 +894,9 @@ class Recognizer(AudioSource):
                 raise WaitTimeoutError("Can't read audio data from source.")
 
             for segment in segmenter.process(buffer):
-                return AudioData(segment.audio, segmenter.sample_rate, segmenter.sample_width)
+                audio = AudioData(segment.audio, segmenter.sample_rate, segmenter.sample_width)
+                audio.segment_reason = getattr(segment, "reason", None)
+                return audio
 
     def listen_with_segmenter_in_background(self, source, callback, segmenter, callback_energy=None, record_timeout=5):
         """
@@ -936,7 +941,9 @@ class Recognizer(AudioSource):
                 if callable(flush):
                     flushed = flush()
                     if flushed is not None:
-                        callback(self, AudioData(flushed.audio, segmenter.sample_rate, segmenter.sample_width))
+                        audio = AudioData(flushed.audio, segmenter.sample_rate, segmenter.sample_width)
+                        audio.segment_reason = getattr(flushed, "reason", None)
+                        callback(self, audio)
 
         def stopper(wait_for_stop=True):
             running[0] = False
