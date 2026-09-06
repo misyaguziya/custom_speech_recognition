@@ -27,7 +27,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 __author__ = "Anthony Zhang (Uberi)"
-__version__ = "3.10.4.4"
+__version__ = "3.10.4.5"
 __license__ = "BSD"
 
 from urllib.parse import urlencode
@@ -1055,7 +1055,7 @@ class Recognizer(AudioSource):
         if hypothesis is not None: return hypothesis.hypstr
         raise UnknownValueError()  # no transcriptions available
 
-    def recognize_google(self, audio_data, key=None, language="en-US", pfilter=0, show_all=False, with_confidence=False):
+    def recognize_google(self, audio_data, key=None, language="en-US", pfilter=0, show_all=False, with_confidence=False, join_all_results=False):
         """
         Performs speech recognition on ``audio_data`` (an ``AudioData`` instance), using the Google Speech Recognition API.
 
@@ -1068,6 +1068,8 @@ class Recognizer(AudioSource):
         The profanity filter level can be adjusted with ``pfilter``: 0 - No filter, 1 - Only shows the first character and replaces the rest with asterisks. The default is level 0.
 
         Returns the most likely transcription if ``show_all`` is false (the default). Otherwise, returns the raw API response as a JSON dictionary.
+
+        This endpoint's response is one or more newline-separated JSON blocks; when ``audio_data`` spans more than one perceived utterance (e.g. it contains an internal pause), the endpoint can return a separate non-empty ``result`` block per utterance. By default (``join_all_results=False``) only the first non-empty block is used, matching this method's historical behavior. Pass ``join_all_results=True`` to instead concatenate every recognized block's best transcript (space-joined) so later utterances within the same clip are not silently dropped; with ``with_confidence=True`` the returned confidence is then the average across all used blocks. ``show_all`` with ``join_all_results=True`` returns the list of all non-empty raw result blocks instead of just the first.
 
         Raises a ``speech_recognition.UnknownValueError`` exception if the speech is unintelligible. Raises a ``speech_recognition.RequestError`` exception if the speech recognition operation failed, if the key isn't valid, or if there is no internet connection.
         """
@@ -1097,34 +1099,49 @@ class Recognizer(AudioSource):
             raise RequestError("recognition connection failed: {}".format(e.reason))
         response_text = response.read().decode("utf-8")
 
-        # ignore any blank blocks
-        actual_result = []
+        # ignore any blank blocks; collect every non-empty result block so
+        # join_all_results can use more than just the first one.
+        matched_results = []
         for line in response_text.split("\n"):
             if not line: continue
             result = json.loads(line)["result"]
             if len(result) != 0:
-                actual_result = result[0]
-                break
+                matched_results.append(result[0])
+                if not join_all_results:
+                    break
+        actual_result = matched_results[0] if matched_results else []
 
         # return results
         if show_all:
-            return actual_result
+            return matched_results if join_all_results else actual_result
 
-        if not isinstance(actual_result, dict) or len(actual_result.get("alternative", [])) == 0: raise UnknownValueError()
+        if not join_all_results:
+            matched_results = matched_results[:1]
 
-        if "confidence" in actual_result["alternative"]:
-            # return alternative with highest confidence score
-            best_hypothesis = max(actual_result["alternative"], key=lambda alternative: alternative["confidence"])
-        else:
-            # when there is no confidence available, we arbitrarily choose the first hypothesis.
-            best_hypothesis = actual_result["alternative"][0]
-        if "transcript" not in best_hypothesis: raise UnknownValueError()
-        # https://cloud.google.com/speech-to-text/docs/basics#confidence-values
-        # "Your code should not require the confidence field as it is not guaranteed to be accurate, or even set, in any of the results."
-        confidence = best_hypothesis.get("confidence", 0.5)
+        transcripts = []
+        confidences = []
+        for candidate in matched_results:
+            if not isinstance(candidate, dict) or len(candidate.get("alternative", [])) == 0:
+                continue
+            if "confidence" in candidate["alternative"]:
+                # return alternative with highest confidence score
+                best_hypothesis = max(candidate["alternative"], key=lambda alternative: alternative["confidence"])
+            else:
+                # when there is no confidence available, we arbitrarily choose the first hypothesis.
+                best_hypothesis = candidate["alternative"][0]
+            if "transcript" not in best_hypothesis: continue
+            # https://cloud.google.com/speech-to-text/docs/basics#confidence-values
+            # "Your code should not require the confidence field as it is not guaranteed to be accurate, or even set, in any of the results."
+            transcripts.append(best_hypothesis["transcript"])
+            confidences.append(best_hypothesis.get("confidence", 0.5))
+
+        if not transcripts: raise UnknownValueError()
+
+        transcript = " ".join(transcripts)
+        confidence = sum(confidences) / len(confidences)
         if with_confidence:
-            return best_hypothesis["transcript"], confidence
-        return best_hypothesis["transcript"]
+            return transcript, confidence
+        return transcript
 
     def recognize_google_cloud(self, audio_data, credentials_json=None, language="en-US", preferred_phrases=None, show_all=False):
         """
